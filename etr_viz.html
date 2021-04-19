@@ -1,0 +1,297 @@
+<html>
+    <head>
+        <title>ETR</title>
+        <link type='text/css' rel='stylesheet' href='etr.css'/>
+    </head>
+    <script type='text/javascript' src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://d3js.org/d3-timer.v1.min.js"></script>
+    <body>
+        <canvas></canvas>
+        <div>
+            <svg></svg>
+        </div>
+    </body>
+    <script>
+        var height = parseFloat(d3.select('body').node().clientHeight)
+        var width = parseFloat(d3.select('body').node().clientWidth)
+        var margin = {top: height*0.1, bottom: height*0.12, left: width*0.12, right: width*0.07}
+        console.log(width, height)
+        svg = d3.select('svg')
+                .attr('height',height)
+                .attr('width',width);
+        canvas = d3.select('canvas')
+                    .attr('height',height)
+                    .attr('width',width)
+        context = canvas.node().getContext('2d');
+        context.clearRect(0,0,width,height)
+
+        
+        d3.csv('etr_d3.csv').then(data => {
+            console.log(data);
+            data = data.filter(d => (d.first_wait && d.first_accuracy))
+            // data = data.slice(0,1000)
+            var wait_length = d3.max(data, d => parseFloat(d.first_wait))
+            var acc_length = d3.max(data, d => Math.abs(parseFloat(d.first_accuracy)))
+            console.log(wait_length, acc_length)
+            title = svg.append('g')
+                            .attr('transform', 'translate('+width/2+','+margin.top/2+')')
+                            .append('text')
+                            .attr('text-anchor', 'middle')
+                            .attr('class', 'title')
+                            .text('Results from ETR Response Rates and Accuracy')
+            xScale = d3.scaleLog()
+                        .range([margin.left, width - margin.right])
+                        .domain([1, wait_length])
+                        .clamp(true);
+            xAxis = d3.axisBottom(xScale)
+                        .ticks(15)
+                        .tickSize(-(height-(margin.top+margin.bottom)));
+            gXaxis = svg.append('g')
+                        .attr('transform','translate(0,'+(height-margin.bottom)+')')
+                        .call(xAxis)
+            gXaxis.append('g')
+                            .attr('transform', 'translate('+width/2+','+margin.bottom/2+')')
+                            .append('text')
+                            .attr('text-anchor', 'middle')
+                            .attr('class','label')
+                            .text('Minutes after OOS until first ETR created')
+
+            yScale = d3.scaleLog()
+                        .range([height-margin.bottom, margin.top])
+                        .domain([1,acc_length])
+                        .clamp(true)
+            yAxis = d3.axisLeft(yScale)
+                        .ticks(15)
+                        .tickSize(-(width-(margin.left+margin.right)))
+            gYaxis = svg.append('g')
+                        .attr('transform', 'translate('+(margin.left)+',0)')
+                        .call(yAxis);
+            gYaxis.append('g')
+                            .attr('transform', 'translate('+(-margin.left/2)+','+height/2+')rotate(270)')
+                            .append('text')
+                            .attr('text-anchor','middle')
+                            .attr('class','label')
+                            .text('Accuracy of ETR in minutes')
+
+            let good = 0
+            let delayed = 0
+            let cancelled = 0
+            let total = data.length
+
+            data.forEach(function(d) {
+                d.x = xScale(parseFloat(d.first_wait))
+                d.y = yScale(Math.abs(parseFloat(d.first_accuracy)))
+                if (d.cancelled==1){
+                    cancelled++
+                } else if (d.delayed==1){
+                    delayed++
+                } else {
+                    good++
+                }
+            })
+            function getPercent(n){
+                return parseFloat(n/total*100).toPrecision(3)
+            }
+
+            g = svg.append('g')
+                .attr('id','data')
+            //     .selectAll('circle')
+            //     .data(data)
+            //     .join('circle')
+            //     .attr('r', 4)
+            //     .attr('cx', d => xScale(parseFloat(d.first_wait)))
+            //     .attr('cy', d => yScale(Math.abs(parseFloat(d.first_accuracy))))
+            //     .attr('class', d => d.delayed == 1 ? 'delay' : (d.cancelled == 1 ? 'cancel' : 'circle'))
+
+            legend = svg.append('g')
+                            .attr('transform', `translate(${width-(margin.right*3)},${margin.top*1.5})`)
+            legend.append('rect')
+                            .attr('height', 100)
+                            .attr('width', 150)
+                            .style('fill', 'white')
+            legend_data = [{color: 'green', tag: 'On Time', percent: getPercent(good)},
+                            {color: 'yellow', tag: 'Delayed', percent: getPercent(delayed)},
+                            {color: 'red', tag: 'Cancelled', percent: getPercent(cancelled)},
+                            {color: 'none', tag: 'Total', percent: total.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}]
+            legend_fill = legend.selectAll('g')
+                            .data(legend_data)
+                            .join('g')
+                            .attr('transform', (d,i) =>`translate(15,${((i+1)*20)})`)
+            legend_fill.append('circle')
+                                .attr('r',5)
+                                .attr('fill', d => d.color)
+            legend_fill.append('text')
+                                .attr('transform','translate(10,0)')
+                                .attr('alignment-baseline', 'middle')
+                                .text(d => d.tag+':')
+            legend_fill.append('text')
+                                .attr('transform','translate(85,0)')
+                                .attr('alignment-baseline', 'middle')
+                                .attr('class','percent')
+                                .text(d => d.tag !== 'Total' ? d.percent + '%' : d.percent)
+
+            const brush = d3.brush()
+                .extent([[margin.left-1,margin.top-1],
+                            [width-margin.right+1, height-margin.bottom+1]])
+                .on('brush end', brushed)
+            svg.append('g').call(brush)
+            d3.selectAll('rect.selection')
+                .attr('fill','orange')
+            d3.selectAll('rect.handle')
+                .attr('fill','black')
+                .attr('opacity',0.3)
+            function brushed(){
+                s = d3.event.selection
+                if(s === null){
+                    legend_fill.selectAll('text.percent')
+                      .text((d,i) => d.tag !== 'Total' ? d.percent + '%' : d.percent)
+                    return
+                }
+                selected = data.filter(d => d.x >= s[0][0] && d.x <= s[1][0] && d.y >= s[0][1] && d.y <= s[1][1])
+                good = delayed = cancelled = 0
+                total = selected.length
+                selected.forEach(d => {
+                    if(d.delayed==1){
+                        delayed++
+                    } else if (d.cancelled==1){
+                        cancelled++
+                    } else {
+                        good++
+                    }
+                })
+                per = [{p:getPercent(good)}, 
+                        {p:getPercent(delayed)}, 
+                        {p:getPercent(cancelled)},
+                        {p:selected.length.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}]
+                i = 0
+                legend_data.forEach((d) => {
+                    d.select_percent = per[i].p
+                    i++
+                })
+                legend_fill.selectAll('text.percent')
+                    .text((d,i) => d.tag !== 'Total' ? d.select_percent + '%' : d.select_percent)
+                    .style('stroke', 'red')
+                    .transition()
+                    .duration(1000)
+                    .style('stroke','black')
+            }
+
+
+            button = svg.append('g')
+                        .attr('transform','translate('+margin.left/10+','+(height-margin.bottom/1.5)+')')
+                        .style('cursor','pointer')
+                        .on('click', linearAxis)
+            button.append('rect')
+                        .attr('width', 120)
+                        .attr('height', 20)
+                        .attr('fill', 'silver')
+                        .attr('stroke','black')
+                        .on('click', linearAxis)
+            button.append('text')
+                        .attr('transform','translate(60,10)')
+                        .attr('text-anchor','middle')
+                        .attr('alignment-baseline','middle')
+                        .text('For Linear Axes')
+            
+            function linearAxis() {
+                context.clearRect(0,0,width,height)
+
+                xScale = d3.scaleLinear()
+                            .range([margin.left, width - margin.right])
+                            .domain([0,1440])
+                            .clamp(true)
+                xAxis = d3.axisBottom(xScale)
+                        .ticks(15)
+                        .tickSize(-(height-(margin.top+margin.bottom)));
+                gXaxis.transition()
+                    .duration(2000)
+                    .call(xAxis)
+
+                yScale = d3.scaleLinear()
+                        .range([height-margin.bottom, margin.top])
+                        .domain([0,1440])
+                        .clamp(true)
+                yAxis = d3.axisLeft(yScale)
+                            .ticks(15)
+                            .tickSize(-(width-(margin.left+margin.right)))
+                gYaxis.transition()
+                        .duration(2000)
+                            .call(yAxis);
+                move_canvas()
+                button.on('click', logAxis)
+                button.select('text').text('For Log Axes')
+            }
+            function logAxis() {
+                context.clearRect(0,0,width,height)
+
+                xScale = d3.scaleLog()
+                            .range([margin.left, width - margin.right])
+                            .domain([1, wait_length])
+                            .clamp(true);
+                xAxis = d3.axisBottom(xScale)
+                            .ticks(15)
+                            .tickSize(-(height-(margin.top+margin.bottom)));
+                gXaxis.transition()
+                            .duration(2000)
+                            .call(xAxis)
+
+                yScale = d3.scaleLog()
+                            .range([height-margin.bottom, margin.top])
+                            .domain([1,acc_length])
+                            .clamp(true)
+                yAxis = d3.axisLeft(yScale)
+                            .ticks(15)
+                            .tickSize(-(width-(margin.left+margin.right)))
+                gYaxis.transition()
+                            .duration(2000)
+                            .call(yAxis);
+                move_canvas()
+                button.on('click', linearAxis)
+                button.select('text').text('For Linear Axes')
+            }
+            function move_canvas() {
+                data.forEach(function(d) {
+                    d.sx = d.x;
+                    d.sy = d.y;
+                });
+                data.forEach(function(d) {
+                    d.x = xScale(parseFloat(d.first_wait))
+                    d.y = yScale(Math.abs(parseFloat(d.first_accuracy)))
+                });
+                data.forEach(function(d) {
+                    d.fx = d.x;
+                    d.fy = d.y;
+                });
+
+                timer = d3.timer(elapsed => {
+                    t = Math.min(1, d3.easeCubic(elapsed/2000))
+                    data.forEach(function(d) {
+                        d.x = d.sx*(1-t) + d.fx*t;
+                        d.y = d.sy*(1-t) + d.fy*t;
+                    });
+                    context.clearRect(0,0,width,height)
+                    make_canvas()
+
+                    if (t===1){
+                        timer.stop()
+                    }
+                })
+            }
+            // setTimeout(linearAxis, 2000)
+            // setTimeout(logAxis, 5000)
+            function make_canvas() {
+                d3.select('#data')
+                    .selectAll('circle')
+                    .attr('display','none')
+                data.forEach(function(d) {
+                    context.fillStyle = d.delayed == 1 ? 'rgba(255,255,0,0.3)' : (d.cancelled == 1 ? 'rgba(255,0,0,0.5)' : 'rgba(0,125,0,0.1)')
+                    context.beginPath()
+                    context.arc(d.x, d.y, 4, 0, Math.PI*2)
+                    context.fill()
+                })
+            }
+            // setTimeout(make_canvas, 5000)
+            make_canvas()
+        })
+    </script>
+</html>

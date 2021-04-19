@@ -1,0 +1,35 @@
+svg {
+    stroke:lightgray;
+    position:absolute;
+}
+canvas {
+    position: absolute;
+}
+circle.circle {
+    fill:green;
+    opacity:0.7;
+}
+circle.cancel {
+    fill:red;
+    opacity:0.7;
+}
+circle.delay {
+    fill:yellow;
+    opacity:0.7;
+}
+line {
+    stroke-dasharray: 3 3;
+    stroke-width: 1;
+    stroke: gray;
+}
+text {
+    stroke:black;
+    font-size:12px;
+    font-family: "Lucida Console", "Courier New", monospace;
+}
+text.label {
+    font-size:16px;
+}
+text.title {
+    font-size:22px;
+}
